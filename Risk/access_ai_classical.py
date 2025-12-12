@@ -3,9 +3,7 @@ import pandas as pd
 import numpy as np
 from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
-import pandas as pd
 import joblib
 
 def data_load_and_preprocess():
@@ -35,9 +33,7 @@ def data_load_and_preprocess():
     # BUILD LONG FORMAT DATAFRAME
     # --------------------------------------------------------------
     rows = []
-
     for ticker in tickers:
-
         temp = pd.DataFrame({
             "Date": data.index,
             "Ticker": ticker,
@@ -47,18 +43,13 @@ def data_load_and_preprocess():
             "Close": data[f"{ticker}_Close"],
             "Volume": data[f"{ticker}_Volume"]
         })
-
         rows.append(temp)
 
     df = pd.concat(rows).reset_index(drop=True)
 
-    print(df.head())
-    print("Shape:", df.shape)
-
     # --------------------------------------------------------------
     # INDICATORS
     # --------------------------------------------------------------
-
     df["returns"] = df.groupby("Ticker")["Close"].pct_change()
     df["volatility"] = df.groupby("Ticker")["returns"].rolling(20).std().reset_index(0, drop=True)
 
@@ -83,53 +74,41 @@ def data_load_and_preprocess():
     df["sma20"] = df.groupby("Ticker")["Close"].transform(lambda x: x.rolling(20).mean())
     df["sma50"] = df.groupby("Ticker")["Close"].transform(lambda x: x.rolling(50).mean())
 
+    # --------------------------------------------------------------
+    # RISK LABELS (low=0, medium=1, high=2)
+    # --------------------------------------------------------------
     df["risk_label"] = pd.qcut(df["volatility"], 3, labels=["low", "medium", "high"])
-
-    print(df.tail())
 
     return df
 
-# -------------------------------
-# Prepare data
-# -------------------------------
+
 def xgb_classifier():
 
     df = data_load_and_preprocess()
 
-    features = [
-        "returns", "volatility", "rsi", "macd", "sma20", "sma50", "Close"
-    ]
+    features = ["returns", "volatility", "rsi", "macd", "sma20", "sma50", "Close"]
 
     df_model = df.dropna(subset=features + ["risk_label"]).copy()
 
     X = df_model[features]
-    y = df_model["risk_label"]
 
-    # Encode labels (low=0, medium=1, high=2)
-    encoder = LabelEncoder()
-    y_encoded = encoder.fit_transform(y)
+    # --------------------------------------------------------------
+    # MANUAL LABEL MAPPING (correct order)
+    # --------------------------------------------------------------
+    risk_map = {"low": 0, "medium": 1, "high": 2}
+    y = df_model["risk_label"].map(risk_map)
+    y = y.astype(int)
 
-    # -------------------------------
-    # Train → Validation → Test split
-    # -------------------------------
-
-    # First split: Train (70%) vs Temp (30%)
+    # --------------------------------------------------------------
+    # Split into Train/Val/Test
+    # --------------------------------------------------------------
     X_train, X_temp, y_train, y_temp = train_test_split(
-        X, y_encoded, test_size=0.30, random_state=42, shuffle=True
+        X, y, test_size=0.30, random_state=42
     )
-
-    # Second split: Validation (15%) vs Test (15%)
     X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.50, random_state=42, shuffle=True
+        X_temp, y_temp, test_size=0.50, random_state=42
     )
 
-    print("Train size:", X_train.shape)
-    print("Validation size:", X_val.shape)
-    print("Test size:", X_test.shape)
-
-    # -------------------------------
-    # XGBoost model with validation
-    # -------------------------------
     model = XGBClassifier(
         n_estimators=500,
         max_depth=6,
@@ -141,32 +120,22 @@ def xgb_classifier():
         eval_metric="mlogloss"
     )
 
-    print("Training XGBoost model with validation...")
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_val, y_val)],    # VALIDATION SET
-        verbose=True
-    )
+    print("Training XGBoost model...")
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=True)
 
-    # -------------------------------
-    # Final Evaluation on Test Set
-    # -------------------------------
     y_pred = model.predict(X_test)
-    
+
     print("\nFinal Test Accuracy:", accuracy_score(y_test, y_pred))
-    print("\nClassification Report:\n", classification_report(y_test, y_pred, target_names=encoder.classes_))
+    print("\nClassification Report:\n", classification_report(y_test, y_pred))
 
-    # -------------------------------
-    # Save the model + encoder
-    # -------------------------------
+    # --------------------------------------------------------------
+    # SAVE MODEL + RISK MAP
+    # --------------------------------------------------------------
     joblib.dump(model, "risk_xgboost_model.pkl")
-    joblib.dump(encoder, "risk_label_encoder.pkl")
+    joblib.dump(risk_map, "risk_label_mapping.pkl")
 
-    print("\nModel saved as risk_xgboost_model.pkl")
+    print("\nSaved: risk_xgboost_model.pkl + risk_label_mapping.pkl")
 
 
-def main():
-    xgb_classifier()
-    
 if __name__ == "__main__":
-    main()
+    xgb_classifier()

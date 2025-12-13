@@ -1,0 +1,70 @@
+Metadata-Version: 2.4
+Name: omago-ai
+Version: 0.1.0
+Summary: Accessible multi-agent trading assistant prototype (Streamlit + RAG + orchestration).
+Author: OmagoAI
+License: Proprietary
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: streamlit>=1.39
+Requires-Dist: pydantic>=2.8
+Requires-Dist: numpy>=1.26
+Requires-Dist: pandas>=2.2
+Requires-Dist: plotly>=5.24
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: scikit-learn>=1.4
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+
+# OmagoAI – Accessible Trading Companion (Prototype)
+
+This workspace scaffolds a hackathon prototype for an **accessible, multi-agent trading assistant** for users with cognitive / learning disabilities.
+
+## What’s in here
+
+- `src/omago_ai/ui/app.py`: Streamlit UI entrypoint
+- `src/omago_ai/agents/`: agent stubs (lead, risk, synthesis, jargon)
+- `src/omago_ai/orchestrator/`: routing + shared state
+- `src/omago_ai/market/`: simulated market feed (to be implemented)
+- `src/omago_ai/rag/`: RAG pipeline skeleton (to be implemented)
+- `data/corpus/`: documents used for RAG
+
+## Quick start (Windows PowerShell)
+
+### 1) Create a venv
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 2) Install dependencies
+
+```powershell
+python -m pip install -U pip
+pip install -e .
+```
+
+Optional (dev tools like pytest/ruff):
+
+```powershell
+pip install -e .[dev]
+```
+
+### 3) Run the UI
+
+```powershell
+streamlit run src/omago_ai/ui/app.py
+```
+
+## Phase 2 (Market Simulation)
+Open the **Market Simulation** tab to generate a live-ish feed for 6 tickers.
+
+## Environment variables
+
+Copy `.env.example` to `.env` and fill values if/when you add an LLM provider.
+
+## Notes
+
+- This is an **education / decision-support prototype**, not financial advice.

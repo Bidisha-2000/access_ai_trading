@@ -1,0 +1,110 @@
+# OmagoAI – Accessible Trading Companion (Prototype)
+
+This workspace scaffolds a hackathon prototype for an **accessible, multi-agent trading assistant** for users with cognitive / learning disabilities.
+
+## What’s in here
+
+- `src/omago_ai/ui/app.py`: Streamlit UI entrypoint
+- `src/omago_ai/agents/`: agent stubs (lead, risk, synthesis, jargon)
+- `src/omago_ai/orchestrator/`: routing + shared state
+- `src/omago_ai/market/`: simulated market feed + feature extraction
+- `src/omago_ai/rag/`: offline RAG pipeline (TF‑IDF) over `data/corpus/`
+- `data/corpus/`: documents used for RAG
+
+## Quick start (Windows PowerShell)
+
+### 1) Create a venv
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 2) Install dependencies
+
+```powershell
+python -m pip install -U pip
+pip install -e .
+```
+
+Optional (dev tools like pytest/ruff):
+
+```powershell
+pip install -e .[dev]
+```
+
+### 3) Run the UI
+
+```powershell
+streamlit run src/omago_ai/ui/app.py
+```
+
+## Phase 2 (Market Simulation)
+
+Open the **Market Simulation** tab to generate a live-ish feed for 6 tickers.
+
+## Demo script (2–3 minutes)
+
+1. Start the app:
+
+```powershell
+streamlit run src/omago_ai/ui/app.py
+```
+
+2. In **Market Simulation** tab:
+
+- Click **Run 60 ticks** (do this 2–3 times)
+- Pick a ticker like **TSLA** and point at the chart + recent events table
+
+3. In **Assistant** tab (reading level = simple):
+
+- Ask: `What does RSI mean?`
+
+  - Point at: plain-language explanation + **Sources** expander
+
+- Ask: `buy $200 of TSLA`
+  - Point at: “Trade check (simple)” step list + confirmation questions
+  - Open: **Market context used (debug)** to show live simulator context (vol estimate, event count, last headline)
+
+Tip: If you don’t see market context, generate ticks first in the Market tab.
+
+## Judge script (30–45 seconds)
+
+1. **Market Simulation**: click **Run 60 ticks** once.
+
+2. **Assistant**:
+
+- Ask: `What does RSI mean?` (shows jargon → simple explanation + sources)
+- Ask: `buy $200 of TSLA` (shows risk-aware, step-by-step checklist)
+- Open: **Market context used (debug)** (proves the risk is reacting to live simulated volatility/events)
+
+## Run tests
+
+```powershell
+python -m pytest -q
+```
+
+## Environment variables
+
+Copy `.env.example` to `.env` and fill values if/when you add an LLM provider.
+
+## Optional LLM mode (separate button)
+
+The app works fully offline by default. If you want LLM-enhanced wording:
+
+1) Install the optional dependency:
+
+```powershell
+pip install -e .[llm]
+```
+
+2) Set env vars in `.env`:
+
+- `OPENAI_API_KEY`
+- (optional) `OPENAI_MODEL` and `OPENAI_BASE_URL`
+
+3) In the UI, use the separate button: **Send (LLM)**.
+
+## Notes
+
+- This is an **education / decision-support prototype**, not financial advice.

@@ -1,0 +1,35 @@
+[project]
+name = "omago-ai"
+version = "0.1.0"
+description = "Accessible multi-agent trading assistant prototype (Streamlit + RAG + orchestration)."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "OmagoAI" }]
+
+dependencies = [
+  "streamlit>=1.39",
+  "pydantic>=2.8",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "plotly>=5.24",
+  "python-dotenv>=1.0",
+  "scikit-learn>=1.4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+]
+
+llm = [
+  "openai>=1.40",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

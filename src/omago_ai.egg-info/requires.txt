@@ -9,3 +9,6 @@ scikit-learn>=1.4
 [dev]
 pytest>=8.3
 ruff>=0.6
+
+[llm]
+openai>=1.40

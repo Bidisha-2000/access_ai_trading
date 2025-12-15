@@ -1,76 +1,324 @@
 from __future__ import annotations
 
+# ---------------------------------------------------------
+# IMPORTS
+# ---------------------------------------------------------
+import os
+import json
+import re
+import joblib
+import numpy as np
+import pandas as pd
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from pathlib import Path
 
-from omago_ai.market.features import MarketTickerSnapshot
-from omago_ai.market.universe import default_universe
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import PromptTemplate
+
 from omago_ai.orchestrator.parsing import TradeRequest
 
+load_dotenv()
 
+# ---------------------------------------------------------
+# DATA MODEL (RETURNED TO UI / ORCHESTRATOR)
+# ---------------------------------------------------------
 class RiskResult(BaseModel):
-    risk_score: int = Field(ge=0, le=100)
+    llm_risk_score: float = Field(ge=0.0, le=1.0)
+    xgboost_risk_score: float = Field(ge=0.0, le=1.0)
+
+    final_risk_score: int = Field(ge=0, le=100)
     risk_level: str
+
     reasons: list[str]
     safer_actions: list[str]
 
+    # backward compatibility
+    @property
+    def risk_score(self) -> int:
+        return self.final_risk_score
 
+
+# ---------------------------------------------------------
+# PATHS
+# ---------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+
+MODEL_PATH = BASE_DIR / "risk_xgboost_model.pkl"
+ENCODER_PATH = BASE_DIR / "risk_label_encoder.pkl"
+CSV_PATH = BASE_DIR / "nse_market_features.csv"
+
+# ---------------------------------------------------------
+# LOAD MODELS + CSV (ONCE)
+# ---------------------------------------------------------
+xgb_model = joblib.load(MODEL_PATH)
+label_encoder = joblib.load(ENCODER_PATH)
+MARKET_DF = pd.read_csv(CSV_PATH)
+
+# ---------------------------------------------------------
+# HELPER: GET LATEST MARKET ROW
+# ---------------------------------------------------------
+def get_latest_row(ticker: str):
+    rows = MARKET_DF[MARKET_DF["Ticker"] == ticker]
+    if rows.empty:
+        return None
+    return rows.sort_values("Date").iloc[-1]
+
+
+# ---------------------------------------------------------
+# LLM CLIENT
+# ---------------------------------------------------------
+def get_llm(api_key: str):
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        google_api_key=api_key,
+    )
+
+
+# ---------------------------------------------------------
+# LLM FUNDAMENTAL PROMPT
+# ---------------------------------------------------------
+risk_prompt = PromptTemplate(
+    input_variables=["pe", "eps", "beta", "de", "vol", "user_action"],
+    template="""
+You are a financial safety assistant.
+
+Explain in very simple English.
+Use short sentences. Avoid jargon.
+
+Your job:
+- Look at the stock data.
+- Estimate risk calmly.
+- Return a confidence score between 0 and 1.
+- Do NOT exaggerate risk.
+- Do NOT recommend buy or sell.
+- Ignore the investment amount completely. Risk score must be based only on stock fundamentals and technical indicators. Amount does not affect risk score.
+- Be deterministic. Do not infer or assume anything not provided.
+
+Return ONLY JSON:
+
+{{
+  "llm_risk_score": <number between 0 and 1>,
+  "explanation": "<simple explanation>"
+}}
+
+Data:
+P/E: {pe}
+EPS: {eps}
+Beta: {beta}
+Debt/Equity: {de}
+Volatility: {vol}
+User Action: {user_action}
+"""
+)
+
+# ---------------------------------------------------------
+# JSON EXTRACTION
+# ---------------------------------------------------------
+def extract_json(text: str) -> dict:
+    clean = re.sub(r"```json|```", "", text).strip()
+    match = re.search(r"\{[\s\S]*\}", clean)
+    if not match:
+        raise ValueError("JSON not found")
+    return json.loads(match.group())
+
+
+# ---------------------------------------------------------
+# LLM FUNDAMENTAL RISK
+# ---------------------------------------------------------
+def llm_risk_analysis(pe, eps, beta, de, vol, user_action, api_key):
+    llm = get_llm(api_key)
+
+    prompt = risk_prompt.format(
+        pe=pe,
+        eps=eps,
+        beta=beta,
+        de=de,
+        vol=vol,
+        user_action=user_action,
+    )
+
+    response = llm.invoke(prompt).content
+    try:
+        parsed = extract_json(response)
+        return float(parsed["llm_risk_score"]), parsed["explanation"]
+    except Exception:
+        return 0.5, "Risk is unclear, so I assumed a medium level."
+
+
+# ---------------------------------------------------------
+# CLASSICAL XGBOOST RISK
+# ---------------------------------------------------------
+def classical_model_risk(technicals: dict) -> float:
+    X = np.array([[
+        technicals["returns"],
+        technicals["volatility"],
+        technicals["rsi"],
+        technicals["macd"],
+        technicals["sma20"],
+        technicals["sma50"],
+        technicals["Close"],
+    ]])
+
+    proba = xgb_model.predict_proba(X)[0]
+    idx = np.arange(len(proba))
+
+    # expected risk ∈ [0,1]
+    return float(np.sum(proba * idx) / 2.0)
+
+
+# ---------------------------------------------------------
+# FINAL LLM FUSION (STRICT AVERAGE)
+# ---------------------------------------------------------
+def llm_decide_final_risk(
+    llm_score,
+    classical_score,
+    user_action,
+    api_key,
+):
+    llm = get_llm(api_key)
+
+    prompt = f"""
+You are a financial safety assistant.
+
+You will be given:
+1. A risk score calculated by an LLM
+2. A risk score calculated by a classical ML model
+3. Some fundamental and technical indicators
+
+FOLLOW THESE STEPS EXACTLY:
+1. Compute:
+   final_risk_score = (LLM risk score + ML risk score) / 2
+2. Do NOT modify the numbers.
+3. Do NOT add extra caution.
+4. Use these fixed thresholds:
+- low: final_risk_score < 0.33
+- medium: 0.33 ≤ final_risk_score < 0.66
+- high: final_risk_score ≥ 0.66
+
+
+Then:
+- Assign risk_level based on the final score.
+- Write ONE short sentence for a cognitive user.
+
+Return ONLY JSON:
+
+{{
+  "final_risk_score": <number between 0 and 1>,
+  "risk_level": "<low/medium/high>",
+  "alert_message": "<one short sentence>"
+}}
+
+LLM risk score = {llm_score}
+Classical ML risk score = {classical_score}
+User action = "{user_action}"
+"""
+
+    response = llm.invoke(prompt).content
+    parsed = extract_json(response)
+
+    return (
+        float(parsed["final_risk_score"]),
+        parsed["risk_level"],
+        parsed["alert_message"],
+    )
+
+
+# ---------------------------------------------------------
+# MAIN RISK AGENT
+# ---------------------------------------------------------
 class RiskAgent:
-    """Rules-first risk analysis.
-
-    For hackathon: fast, deterministic, and explainable.
-    Later you can replace/augment this with an LLM risk agent.
+    """
+    Hybrid Risk Agent:
+    - CSV technicals
+    - XGBoost probability
+    - LLM explanation + fusion
     """
 
-    def analyze(self, trade: TradeRequest, *, market: MarketTickerSnapshot | None = None) -> RiskResult:
-        specs = {s.ticker: s for s in default_universe()}
-        spec = specs.get(trade.ticker)
+    def analyze(self, trade: TradeRequest, *, market=None) -> RiskResult:
+        api_key = os.getenv("MY_TOKEN")
 
-        reasons: list[str] = []
-        safer: list[str] = []
+        row = get_latest_row(trade.ticker)
 
-        # Base score from volatility.
-        # Prefer live simulated volatility (derived from recent ticks) when available.
-        vol = float(spec.vol_per_sqrt_day) if spec else 0.02
-        if market is not None and market.vol_per_sqrt_day_est is not None:
-            vol = float(market.vol_per_sqrt_day_est)
-            reasons.append(
-                "Based on recent price swings in the live simulator.")
-            if market.recent_event_count > 0:
-                reasons.append(
-                    "Recent simulated news/earnings events can increase uncertainty.")
-                safer.append(
-                    "Be extra careful when the price is reacting to news.")
-        if vol >= 0.032:
-            score = 78
-            level = "high"
-            reasons.append(
-                "This stock is simulated as more volatile (bigger price swings).")
-            safer.append("Consider a smaller amount to start.")
-            safer.append(
-                "Consider using a stop-loss / limit order (if available).")
-        elif vol >= 0.022:
-            score = 55
-            level = "medium"
-            reasons.append("This stock can move noticeably up and down.")
-            safer.append("Consider splitting into 2 smaller buys/sells.")
+        if row is not None:
+            technicals = {
+                "returns": float(row["returns"]),
+                "volatility": float(row["volatility"]),
+                "rsi": 50.0,
+                "macd": 0.0,
+                "sma20": float(row["sma20"]),
+                "sma50": float(row["sma50"]),
+                "Close": float(row["Close"]),
+            }
+
+            fundamentals = {
+                "pe": 28.0,
+                "eps": 80.0,
+                "beta": 0.9,
+                "de": 0.3,
+                "vol": technicals["volatility"],
+            }
         else:
-            score = 30
-            level = "low"
-            reasons.append("This stock is simulated as less volatile.")
+            technicals = {
+                "returns": 0.0,
+                "volatility": 0.25,
+                "rsi": 50.0,
+                "macd": 0.0,
+                "sma20": 0.0,
+                "sma50": 0.0,
+                "Close": 0.0,
+            }
 
-        # Size-based adjustment (very rough).
-        if trade.notional_usd is not None:
-            if trade.notional_usd >= 1000:
-                score = min(100, score + 15)
-                reasons.append("The dollar amount is relatively large.")
-                safer.append("Double-check the amount before confirming.")
-            elif trade.notional_usd >= 300:
-                score = min(100, score + 5)
-                reasons.append("The dollar amount is moderate.")
+            fundamentals = {
+                "pe": 30.0,
+                "eps": 50.0,
+                "beta": 1.0,
+                "de": 0.5,
+                "vol": 0.25,
+            }
 
-        # Ensure at least one actionable item.
-        if not safer:
-            safer.append(
-                "Review your plan and confirm you understand the risks.")
+        llm_score, llm_reason = llm_risk_analysis(
+            fundamentals["pe"],
+            fundamentals["eps"],
+            fundamentals["beta"],
+            fundamentals["de"],
+            fundamentals["vol"],
+            trade.side,
+            api_key,
+        )
 
-        return RiskResult(risk_score=int(score), risk_level=level, reasons=reasons, safer_actions=safer)
+        xgb_score = classical_model_risk(technicals)
+
+        final_risk, level, alert = llm_decide_final_risk(
+            llm_score,
+            xgb_score,
+            trade.side,
+            api_key,
+        )
+
+        return RiskResult(
+            llm_risk_score=round(llm_score, 3),
+            xgboost_risk_score=xgb_score,
+            final_risk_score=int(final_risk * 100),
+            risk_level=level,
+            reasons=[llm_reason],
+            safer_actions=[alert],
+        )
+
+
+# ---------------------------------------------------------
+# LOCAL TEST
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    trade = TradeRequest(
+        side="buy",
+        ticker="TCS.NS",
+        notional_usd=5000,
+    )
+
+    agent = RiskAgent()
+    result = agent.analyze(trade)
+
+    print("\n=== RISK AGENT OUTPUT ===")
+    print(result.model_dump())

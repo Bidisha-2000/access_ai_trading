@@ -11,8 +11,14 @@ class TradeRequest:
     notional_usd: float | None = None
     shares: float | None = None
 
+     # --- OPTIONAL FUNDAMENTALS (for RiskAgent) ---
+    pe: float | None = None
+    eps: float | None = None
+    beta: float | None = None
+    de: float | None = None
+    vol: float | None = None
 
-_TICKER_RE = re.compile(r"\b([A-Z]{2,5})\b")
+_TICKER_RE = re.compile(r"\b([A-Z]{2,10}(?:\.NS)?)\b")
 _MONEY_RE = re.compile(
     r"\$\s*(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*(?:usd|dollars?)\b", re.IGNORECASE)
 _SHARES_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:shares?|sh)\b", re.IGNORECASE)

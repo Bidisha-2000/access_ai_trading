@@ -70,7 +70,7 @@ def get_latest_row(ticker: str):
 # ---------------------------------------------------------
 def get_llm(api_key: str):
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         temperature=0,
         google_api_key=api_key,
     )
@@ -86,15 +86,20 @@ You are a financial safety assistant.
 
 Explain in very simple English.
 Use short sentences. Avoid jargon.
+IMPORTANT DEFINITIONS:
+- Risk score means: probability of downside or loss
+- It is NOT a qualitative opinion
+- It must be comparable to a statistical ML model output
 
 Your job:
-- Look at the stock data.
-- Estimate risk calmly.
-- Return a confidence score between 0 and 1.
-- Do NOT exaggerate risk.
-- Do NOT recommend buy or sell.
-- Ignore the investment amount completely. Risk score must be based only on stock fundamentals and technical indicators. Amount does not affect risk score.
-- Be deterministic. Do not infer or assume anything not provided.
+- Look at the stock data
+- Estimate the likelihood of downside based ONLY on the data
+- Be conservative in numbers, not language
+- Typical values should be between 0.05 and 0.40 for stable large-cap stocks
+- Do NOT exaggerate risk
+- Do NOT recommend buy or sell
+- Ignore the investment amount completely
+- Be deterministic. Do not infer anything not provided
 
 Return ONLY JSON:
 

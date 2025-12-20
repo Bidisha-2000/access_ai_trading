@@ -13,11 +13,19 @@ Requires-Dist: pandas>=2.2
 Requires-Dist: plotly>=5.24
 Requires-Dist: python-dotenv>=1.0
 Requires-Dist: scikit-learn>=1.4
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: joblib>=1.3
+Requires-Dist: xgboost>=2.0
+Requires-Dist: gTTS>=2.5
+Requires-Dist: langchain-core>=0.2
+Requires-Dist: langchain-google-genai>=1.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8.3; extra == "dev"
 Requires-Dist: ruff>=0.6; extra == "dev"
 Provides-Extra: llm
 Requires-Dist: openai>=1.40; extra == "llm"
+Provides-Extra: data
+Requires-Dist: yfinance>=0.2; extra == "data"
 
 # OmagoAI – Accessible Trading Companion (Prototype)
 

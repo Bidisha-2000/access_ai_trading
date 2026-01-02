@@ -1,4 +1,4 @@
-from omago_ai.rag.retriever import RagConfig, RagRetriever
+from omago_ai.rag.retriever import retrieve_news_docs
 from omago_ai.rag.types import DocumentChunk, RetrievedChunk
 
 __all__ = [

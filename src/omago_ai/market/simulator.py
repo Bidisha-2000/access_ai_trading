@@ -88,7 +88,7 @@ class MarketSimulator:
         if event_type == "earnings":
             headline = f"{ticker} earnings surprised the market"
         else:
-            headline = f"Breaking news impacts {ticker} sentiment"
+            headline = f"{ticker} announces a business update"
 
         # Clamp shocks so the demo stays readable.
         impact = float(np.clip(impact, -0.05, 0.05))

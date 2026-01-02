@@ -1,65 +1,54 @@
-from __future__ import annotations
+# rag/index.py
 
-from dataclasses import dataclass
-from pathlib import Path
-import pickle
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+from .docs import RAG_DOCUMENTS
+from .loader import fetch_latest_news
+from .chunking import chunk_text
+from dotenv import load_dotenv
+import os
+load_dotenv()
+_vectorstore = None
 
-from omago_ai.rag.types import DocumentChunk, RetrievedChunk
+api_key=os.getenv('MY_TOKEN')
 
+def build_vectorstore():
+    global _vectorstore
+    if _vectorstore is not None:
+        return _vectorstore
 
-@dataclass
-class RagIndex:
-    vectorizer: TfidfVectorizer
-    matrix: "np.ndarray | object"  # sparse matrix
-    chunks: list[DocumentChunk]
-
-
-def build_index(chunks: list[DocumentChunk]) -> RagIndex:
-    # Word-level TF-IDF works well for a small corpus and runs offline.
-    vectorizer = TfidfVectorizer(
-        lowercase=True,
-        stop_words="english",
-        ngram_range=(1, 2),
-        max_features=40_000,
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="gemini-embedding-001",
+        google_api_key=api_key
     )
-    matrix = vectorizer.fit_transform([c.text for c in chunks])
-    return RagIndex(vectorizer=vectorizer, matrix=matrix, chunks=chunks)
+
+    documents = []
+
+    # 1️⃣ Static RAG docs
+    for d in RAG_DOCUMENTS:
+        documents.append(
+            Document(
+                page_content=d["text"],
+                metadata=d.get("metadata", {})
+            )
+        )
+
+    # 2️⃣ Latest news (chunked)
+    for news in fetch_latest_news():
+        chunks = chunk_text(news["content"])
+
+        for chunk in chunks:
+            documents.append(
+                Document(
+                    page_content=chunk,
+                    metadata={"type": "news", "title": news["title"]},
+                )
+            )
+
+    _vectorstore = FAISS.from_documents(documents, embeddings)
+
+    return _vectorstore
 
 
-def save_index(index: RagIndex, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        pickle.dump(index, f)
-
-
-def load_index(path: Path) -> RagIndex:
-    with path.open("rb") as f:
-        return pickle.load(f)
-
-
-def query_index(index: RagIndex, query: str, *, top_k: int = 5) -> list[RetrievedChunk]:
-    q = (query or "").strip()
-    if not q:
-        return []
-
-    q_vec = index.vectorizer.transform([q])
-    # Cosine similarity because TF-IDF vectors are L2-normalized by default.
-    scores = (index.matrix @ q_vec.T).toarray().reshape(-1)
-
-    if scores.size == 0:
-        return []
-
-    top_k = max(1, int(top_k))
-    idxs = np.argsort(scores)[::-1][:top_k]
-
-    results: list[RetrievedChunk] = []
-    for i in idxs:
-        score = float(scores[i])
-        if score <= 0:
-            continue
-        results.append(RetrievedChunk(chunk=index.chunks[int(i)], score=score))
-
-    return results

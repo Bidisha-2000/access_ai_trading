@@ -1,120 +1,208 @@
+# jargon_agent.py
+# ---------------------------------------------
 from __future__ import annotations
 
-import re
+import os
+import time
+import textwrap
+from typing import Any, Dict, List, Optional
+from io import BytesIO
 
-from pydantic import BaseModel, Field
+import matplotlib.pyplot as plt
+import numpy as np
+from dotenv import load_dotenv
+from gtts import gTTS
+from pydantic import BaseModel
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import PromptTemplate
 
-from omago_ai.rag import RagRetriever
-from omago_ai.llm.client import LLMClient
-from omago_ai.llm.prompts import jargon_prompt
+load_dotenv()
 
 
+# --------------------------------------------------
+# ROUTER-COMPATIBLE RESULT MODEL
+# --------------------------------------------------
 class JargonResult(BaseModel):
     final_message: str
-    sources: list[dict] | None = None
-    matched: bool = Field(default=False)
+    sources: Optional[List[Dict[str, Any]]] = None
+    market_used: Optional[Dict[str, Any]] = None
 
 
+# --------------------------------------------------
+# JARGON AGENT
+# --------------------------------------------------
 class JargonAgent:
-    """Explains trading jargon using local RAG.
+    def __init__(
+        self,
+        model: str = "gemini-2.5-flash-lite",
+        temperature: float = 0.2,
+        api_key_env: str = "MY_TOKEN",
+    ):
+        self.llm = ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            google_api_key=os.getenv(api_key_env),
+        )
 
-    This is intentionally simple and offline-friendly for hackathon demos.
-    """
+        self.simple_prompt = PromptTemplate(
+            input_variables=["term"],
+            template="""
+Explain this trading term in very simple language.
 
-    def __init__(self, *, retriever: RagRetriever | None = None) -> None:
-        self.retriever = retriever or RagRetriever()
+Rules:
+- No jargon
+- Grade 5 reading level
+- 6-10 short sentences
 
+
+Term: "{term}"
+
+Return ONLY the explanation.
+""",
+        )
+
+        self.narration_prompt = PromptTemplate(
+            input_variables=["term"],
+            template="""
+Explain this trading term like a calm teacher.
+
+Rules:
+- Friendly tone
+- Simple real-life example
+- Explain why it matters
+- 6–10 sentences
+- No jargon
+- Grade 5 reading level
+
+Term: "{term}"
+
+Return ONLY narration text.
+""",
+        )
+
+    # --------------------------------------------------
+    # SAFE LLM CALL
+    # --------------------------------------------------
+    def _safe_invoke(self, prompt: str, retries: int = 1) -> str:
+        for i in range(retries):
+            try:
+                res = self.llm.invoke(prompt)
+                if res and res.content:
+                    return res.content.strip()
+            except Exception:
+                time.sleep(2 * (i + 1))
+
+        return "This term helps people understand the stock market."
+
+    # --------------------------------------------------
+    # ROUTER-SAFE EXPLAIN
+    # --------------------------------------------------
     def explain(
         self,
-        user_question: str,
-        *,
+        term: str,
         reading_level: str = "simple",
-        use_llm: bool = False,
-        llm_client: LLMClient | None = None,
+        **kwargs,
     ) -> JargonResult:
-        retrieved = self.retriever.retrieve(user_question, top_k=4)
-        sources = [
-            {"source": r.chunk.source_path, "score": round(r.score, 4)}
-            for r in retrieved
-        ] or None
+        prompt = self.simple_prompt.format(term=term)
+        text = self._safe_invoke(prompt)
 
-        if not retrieved:
-            return JargonResult(
-                matched=False,
-                final_message=(
-                    "I can explain that in simple words, but I don’t have a matching glossary entry yet.\n\n"
-                    "Add a short definition into `data/corpus/` (like `data/corpus/glossary.md`) and try again."
-                ),
-                sources=None,
-            )
+        return JargonResult(
+            final_message=text,
+            sources=[{"type": "llm", "model": "gemini"}],
+        )
 
-        # Prefer a paragraph that actually mentions the user's term (e.g., "RSI"),
-        # not just a document title.
-        best = retrieved[0].chunk.text.strip()
-        snippet = _pick_relevant_paragraph(best, user_question)
+    # --------------------------------------------------
+    # NARRATION (KWARG SAFE)
+    # --------------------------------------------------
+    def narrate(
+        self,
+        term: str,
+        reading_level: str = "simple",
+        **kwargs,
+    ) -> str:
+        prompt = self.narration_prompt.format(term=term)
+        return self._safe_invoke(prompt)
 
-        if reading_level == "simple":
-            header = "Here’s a simple explanation:"
-            followup = "Want me to explain a chart/alert too? Paste it here."
+    # --------------------------------------------------
+    # TEXT → SPEECH (BYTES, STREAMLIT-SAFE)
+    # --------------------------------------------------
+    def text_to_speech(
+    self,
+    text: str,
+    out_path: str = "narration.mp3",
+) -> str:
+        try:
+            tts = gTTS(text=text, lang="en", slow=True)
+            tts.save(out_path)
+            return out_path
+        except Exception:
+            # Ensure file always exists
+            with open(out_path, "wb") as f:
+                f.write(b"")
+            return out_path
+
+
+    # --------------------------------------------------
+    # VISUAL CARD (MATPLOTLIB)
+    # --------------------------------------------------
+    def create_visual(
+        self,
+        term: str,
+        explanation: Any,
+        out_path: str = "jargon_card.png",
+    ) -> str:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.axis("off")
+
+        ax.text(
+            0.5,
+            0.85,
+            term,
+            fontsize=22,
+            ha="center",
+            weight="bold",
+        )
+
+        if hasattr(explanation, "final_message"):
+            text = explanation.final_message
         else:
-            header = "Explanation:"
-            followup = "If you share the chart/alert text, I can explain it step-by-step."
+            text = str(explanation)
 
-        final_message = f"{header}\n\n{snippet}\n\n{followup}"
+        wrapped = "\n".join(textwrap.wrap(text, width=42))
+        ax.text(
+            0.5,
+            0.5,
+            wrapped,
+            fontsize=14,
+            ha="center",
+            va="center",
+        )
 
-        if use_llm and llm_client is not None:
-            try:
-                system, user = jargon_prompt(
-                    user_question,
-                    reading_level=reading_level,
-                    retrieved_snippets=[r.chunk.text for r in retrieved],
-                )
-                llm_text = llm_client.complete(system=system, user=user)
-                if llm_text:
-                    final_message = llm_text
-            except Exception:
-                # If LLM fails, silently fall back to offline explanation.
-                pass
+        y = np.random.normal(0, 0.4, 30).cumsum()
+        y_norm = (y - y.min()) / (y.max() - y.min())
+        ax.plot(
+            np.linspace(0.1, 0.9, 30),
+            y_norm * 0.2 + 0.15,
+            linewidth=2,
+        )
 
-        return JargonResult(matched=True, final_message=final_message, sources=sources)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=150, bbox_inches="tight")
+        plt.close()
 
+        return out_path
 
-def _pick_relevant_paragraph(text: str, question: str) -> str:
-    # Split on blank lines, allowing whitespace on the blank line.
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
-    if not paragraphs:
-        return text.strip()
+    # --------------------------------------------------
+    # UI-ONLY HELPER (NOT USED BY ROUTER)
+    # --------------------------------------------------
+    def explain_with_audio(self, term: str) -> Dict[str, Any]:
+        jr = self.explain(term)
+        narration = self.narrate(term)
+        audio_bytes = self.text_to_speech(narration)
 
-    q = (question or "").strip()
-    q_lower = q.lower()
-
-    # Heuristic: find the first paragraph containing a strong keyword.
-    # Works well for glossary questions like "What is RSI?".
-    keywords: list[str] = []
-    for token in q.replace("?", " ").replace(",", " ").split():
-        t = token.strip().strip("\"'()[]{}:;.!\n\t")
-        if 2 <= len(t) <= 12 and any(c.isalpha() for c in t):
-            keywords.append(t)
-
-    def _maybe_expand_heading(i: int) -> str:
-        p = paragraphs[i]
-        # If we matched a markdown heading, also include the next paragraph as the definition.
-        if p.lstrip().startswith("#") and i + 1 < len(paragraphs):
-            return f"{p}\n\n{paragraphs[i + 1]}"
-        return p
-
-    # Prefer uppercase acronym matches (RSI/EMA/MACD) if present.
-    for k in keywords:
-        if k.isupper() and k.lower() in q_lower:
-            for i, p in enumerate(paragraphs):
-                if k.lower() in p.lower():
-                    return _maybe_expand_heading(i)
-
-    # Otherwise, pick the first paragraph that overlaps any keyword.
-    for k in keywords:
-        for i, p in enumerate(paragraphs):
-            if k.lower() in p.lower():
-                return _maybe_expand_heading(i)
-
-    # Fallback: first paragraph.
-    return paragraphs[0]
+        return {
+            "term": term,
+            "text": jr.final_message,
+            "audio": audio_bytes,
+            "sources": jr.sources,
+        }

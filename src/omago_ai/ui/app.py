@@ -1,24 +1,131 @@
 from __future__ import annotations
-
+import json
 from datetime import datetime, timezone
+import os
 from typing import Any
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
 from omago_ai.agents.chart_agent import ChartAgent
 from omago_ai.agents.jargon_agent import JargonAgent
 from omago_ai.orchestrator.router import LeadRouter
+from omago_ai.agents.risk_agent import RiskAgent
+from omago_ai.orchestrator.parsing import TradeRequest
 from omago_ai.orchestrator.state import SessionState
 from omago_ai.market import MarketSimulator, SimulatorConfig, build_market_snapshot, default_universe
 from omago_ai.market.utils import ticks_to_frame
 from omago_ai.llm import get_openai_client_from_env
+import re
+from omago_ai.agents.news_agent import NewsAgent
+
+
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+
+FUNDAMENTAL_AUDIO = {
+    "Market Cap": "audio_market_cap.mp3",
+    "P/E": "audio_pe.mp3",
+    "EPS": "audio_eps.mp3",
+    "Dividend Yield": "audio_dividend_yield.mp3",
+    "52W High": "audio_52w_high.mp3",
+    "52W Low": "audio_52w_low.mp3",
+    "Beta": "audio_beta.mp3",
+    "Volatility (est, sim)": "audio_volatility_est_sim.mp3",
+    "Avg Volume (sim)": "audio_avg_volume_sim.mp3",
+}
+
+
+if "show_jargon" not in st.session_state:
+    st.session_state["show_jargon"] = False
+
+import re
+
+def extract_json(text: str) -> dict:
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group())
+    except Exception:
+        return {}
+
+def play_fundamental_audio(label: str):
+    audio_rel = FUNDAMENTAL_AUDIO.get(label)
+    if not audio_rel:
+        return
+
+    audio_abs = os.path.join(BASE_DIR,"assets",audio_rel)
+
+    if not os.path.exists(audio_abs):
+        st.error(f"Audio file missing: {audio_abs}")
+        return
+    
+    if os.path.exists(audio_abs):
+        with open(audio_abs, "rb") as f:
+            st.session_state["fundamental_audio_bytes"] = f.read()
+            st.session_state["fundamental_audio_label"] = label
+
+
+
+def _safe_filename(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)   # remove / % . etc
+    text = re.sub(r"\s+", "_", text)       # spaces → _
+    return text
+
+def _explain_term(term: str, *, with_audio: bool = True) -> None:
+    agent = JargonAgent()
+
+    jr = agent.explain(term)
+
+    img_path = f"card_{term.replace(' ', '_').lower()}.png"
+    agent.create_visual(term, jr, img_path)
+
+    audio_path = None
+    if with_audio:
+        narration = agent.narrate(term)
+        audio_path = agent.text_to_speech(
+            narration,
+            f"narration_{term.replace(' ', '_').lower()}.mp3"
+        )
+
+    st.session_state["glossary_result"] = {
+        "term": term,
+        "image": img_path,
+        "audio": audio_path,
+        "sources": jr.sources,
+    }
+
+
+def render_jargon_card():
+    if "glossary_result" not in st.session_state:
+        return
+
+    gr = st.session_state["glossary_result"]
+
+    st.divider()
+    st.subheader(f"📘 {gr['term']} — meaning")
+
+    with st.container(border=True):
+        st.image(gr["image"], use_column_width=True)
+
+        if gr.get("audio"):
+            st.audio(gr["audio"], format="audio/mp3")
+
+        if gr.get("sources"):
+            with st.expander("Sources"):
+                st.json(gr["sources"])
+
+
 
 
 st.set_page_config(page_title="OmagoAI Prototype", layout="wide")
 
-st.title("OmagoAI – Accessible Trading Companion (Prototype)")
+#Call the risk agent 
+risk_agent = RiskAgent()
+#Call news agent
+news_agent = NewsAgent()
+
+st.title("OmagoAI – Orchestrated Multi-Agent Guardian for Open-trading ")
 st.caption("Education-only prototype. Not financial advice.")
 
 with st.sidebar:
@@ -80,11 +187,32 @@ with tab_assistant:
                     llm_client=llm_client,
                 )
                 st.session_state["last_result"] = result
+                
+                # ---------------- RISK CHECK (Assistant) ----------------
+                try:
+                    if hasattr(result, "trade_request") and result.trade_request:
+                        trade_req = result.trade_request
+
+                        risk = risk_agent.analyze(trade_req)
+
+                        st.session_state["assistant_risk"] = risk
+                except Exception as e:
+                    st.session_state["assistant_risk_error"] = str(e)
+
 
         if "last_result" in st.session_state:
             st.divider()
             st.subheader("Response")
             st.write(st.session_state["last_result"].final_message)
+
+            # ---------------- RISK OUTPUT (Assistant) ----------------
+            if "assistant_risk" in st.session_state:
+                r = st.session_state["assistant_risk"]
+
+                st.subheader("⚠️ Risk Check")
+                st.metric("Final Risk Score", f"{r.final_risk_score}/100", r.risk_level.upper())
+                st.write("Reason:", r.reasons[0])
+
 
             if getattr(st.session_state["last_result"], "sources", None):
                 with st.expander("Sources"):
@@ -124,23 +252,40 @@ with tab_assistant:
 
         st.divider()
         st.subheader("Glossary search")
-        q = st.text_input(
-            "Search a term", placeholder="RSI, EMA, support, resistance…")
+        q = st.text_input("Search a term", placeholder="RSI, EMA, support, resistance…")
+
         if st.button("Search", key="glossary_search"):
             if not q.strip():
                 st.warning("Type a term first.")
             else:
-                agent = JargonAgent()
-                jr = agent.explain(q, reading_level=st.session_state.get(
-                    "reading_level", "simple"))
-                st.session_state["glossary_result"] = jr
+                _explain_term(q)
 
+        # -------- CARD POP-OUT RENDER --------
         if "glossary_result" in st.session_state:
-            jr = st.session_state["glossary_result"]
-            st.write(jr.final_message)
-            if jr.sources:
-                with st.expander("Sources", expanded=False):
-                    st.json(jr.sources)
+            gr = st.session_state["glossary_result"]
+
+            st.divider()
+            st.subheader("📘 Term explanation")
+
+            with st.container(border=True):
+                st.image(gr["image"], use_column_width=True)
+
+                if gr.get("audio"):
+                    st.audio(gr["audio"])
+
+                if gr.get("sources"):
+                    with st.expander("Sources"):
+                        st.json(gr["sources"])
+
+
+
+
+        #if "glossary_result" in st.session_state:
+        # jr = st.session_state["glossary_result"]
+        #st.write(jr.final_message)
+            #if jr.sources:
+                #with st.expander("Sources", expanded=False):
+                    #st.json(jr.sources)
 
         if "last_result" in st.session_state:
             st.caption("Debug")
@@ -152,100 +297,99 @@ with tab_market:
     st.caption("Simulated data for demo only. Not financial advice.")
 
     def _company_catalog() -> list[dict[str, Any]]:
-        # Minimal static metadata for the demo UI.
-        # If you later add real fundamentals, swap these placeholders out.
         return [
-            {
-                "ticker": "AAPL",
-                "name": "Apple",
-                "sector": "Technology",
-                "description": "Consumer electronics and services.",
-                "fundamentals": {
-                    "Market Cap": "$2.9T",
-                    "P/E": "30.1",
-                    "EPS": "$6.43",
-                    "Dividend Yield": "0.5%",
-                    "52W High": "$260.0",
-                    "52W Low": "$164.0",
-                    "Beta": "1.2",
-                },
+        {
+            "ticker": "TCS.NS",
+            "name": "Tata Consultancy Services",
+            "sector": "IT Services",
+            "description": "India’s largest IT services company.",
+            "fundamentals": {
+                "Market Cap": "₹14.5T",
+                "P/E": "28.0",
+                "EPS": "₹80",
+                "Dividend Yield": "1.2%",
+                "52W High": "₹4,260",
+                "52W Low": "₹3,200",
+                "Beta": "0.9",
             },
-            {
-                "ticker": "MSFT",
-                "name": "Microsoft",
-                "sector": "Technology",
-                "description": "Cloud, software, and productivity tools.",
-                "fundamentals": {
-                    "Market Cap": "$3.1T",
-                    "P/E": "35.2",
-                    "EPS": "$11.2",
-                    "Dividend Yield": "0.7%",
-                    "52W High": "$460.0",
-                    "52W Low": "$310.0",
-                    "Beta": "0.9",
-                },
+        },
+        {
+            "ticker": "INFY.NS",
+            "name": "Infosys",
+            "sector": "IT Services",
+            "description": "Global consulting and IT services firm.",
+            "fundamentals": {
+                "Market Cap": "₹6.5T",
+                "P/E": "25.0",
+                "EPS": "₹65",
+                "Dividend Yield": "1.8%",
+                "52W High": "₹1,980",
+                "52W Low": "₹1,350",
+                "Beta": "0.8",
             },
-            {
-                "ticker": "GOOG",
-                "name": "Alphabet",
-                "sector": "Technology",
-                "description": "Search, ads, and cloud services.",
-                "fundamentals": {
-                    "Market Cap": "$2.1T",
-                    "P/E": "25.0",
-                    "EPS": "$6.10",
-                    "Dividend Yield": "0.0%",
-                    "52W High": "$200.0",
-                    "52W Low": "$130.0",
-                    "Beta": "1.1",
-                },
+        },
+        {
+            "ticker": "RELIANCE.NS",
+            "name": "Reliance Industries",
+            "sector": "Conglomerate",
+            "description": "Energy, telecom, retail, and digital services.",
+            "fundamentals": {
+                "Market Cap": "₹18.8T",
+                "P/E": "24.0",
+                "EPS": "₹102",
+                "Dividend Yield": "0.3%",
+                "52W High": "₹3,050",
+                "52W Low": "₹2,200",
+                "Beta": "1.1",
             },
-            {
-                "ticker": "AMZN",
-                "name": "Amazon",
-                "sector": "Consumer Discretionary",
-                "description": "E-commerce and cloud infrastructure.",
-                "fundamentals": {
-                    "Market Cap": "$1.9T",
-                    "P/E": "55.0",
-                    "EPS": "$3.00",
-                    "Dividend Yield": "0.0%",
-                    "52W High": "$210.0",
-                    "52W Low": "$120.0",
-                    "Beta": "1.3",
-                },
+        },
+        {
+            "ticker": "HDFCBANK.NS",
+            "name": "HDFC Bank",
+            "sector": "Banking",
+            "description": "India’s largest private sector bank.",
+            "fundamentals": {
+                "Market Cap": "₹12.2T",
+                "P/E": "19.0",
+                "EPS": "₹95",
+                "Dividend Yield": "1.0%",
+                "52W High": "₹1,760",
+                "52W Low": "₹1,360",
+                "Beta": "0.9",
             },
-            {
-                "ticker": "TSLA",
-                "name": "Tesla",
-                "sector": "Automotive",
-                "description": "Electric vehicles and energy products.",
-                "fundamentals": {
-                    "Market Cap": "$0.8T",
-                    "P/E": "60.0",
-                    "EPS": "$4.30",
-                    "Dividend Yield": "0.0%",
-                    "52W High": "$320.0",
-                    "52W Low": "$140.0",
-                    "Beta": "1.9",
-                },
+        },
+        {
+            "ticker": "ICICIBANK.NS",
+            "name": "ICICI Bank",
+            "sector": "Banking",
+            "description": "Major Indian private sector bank.",
+            "fundamentals": {
+                "Market Cap": "₹8.7T",
+                "P/E": "18.0",
+                "EPS": "₹56",
+                "Dividend Yield": "0.8%",
+                "52W High": "₹1,260",
+                "52W Low": "₹900",
+                "Beta": "1.0",
             },
-            {
-                "ticker": "NVDA",
-                "name": "NVIDIA",
-                "sector": "Technology",
-                "description": "GPUs for AI and accelerated computing.",
-                "fundamentals": {
-                    "Market Cap": "$2.4T",
-                    "P/E": "65.0",
-                    "EPS": "$2.10",
-                    "Dividend Yield": "0.03%",
-                    "52W High": "$150.0",
-                    "52W Low": "$40.0",
-                    "Beta": "1.6",
-                },
+        },
+        {
+            "ticker": "ITC.NS",
+            "name": "ITC Limited",
+            "sector": "FMCG",
+            "description": "Consumer goods, hotels, and agribusiness.",
+            "fundamentals": {
+                "Market Cap": "₹5.6T",
+                "P/E": "27.0",
+                "EPS": "₹15",
+                "Dividend Yield": "3.5%",
+                "52W High": "₹525",
+                "52W Low": "₹400",
+                "Beta": "0.6",
             },
-        ]
+        },
+    ]
+
 
     def _ensure_market_sim() -> MarketSimulator:
         if "market_sim" not in st.session_state:
@@ -293,30 +437,7 @@ with tab_market:
         pct_change = (abs_change / first) * 100.0
         return abs_change, pct_change
 
-    def _explain_term(term: str) -> None:
-        agent = JargonAgent()
-        jr = agent.explain(
-            term,
-            reading_level=st.session_state.get("reading_level", "simple"),
-            use_llm=False,
-            llm_client=None,
-        )
-        st.session_state["market_term_explanation"] = {
-            "term": term,
-            "text": jr.final_message,
-            "sources": jr.sources,
-        }
 
-    def _render_explanation_box() -> None:
-        ex = st.session_state.get("market_term_explanation")
-        if not ex:
-            return
-        st.divider()
-        st.subheader(f"Meaning (simple): {ex.get('term', '')}")
-        st.write(ex.get("text", ""))
-        if ex.get("sources"):
-            with st.expander("Sources", expanded=False):
-                st.json(ex.get("sources"))
 
     def _render_chart_explanation() -> None:
         ex = st.session_state.get("market_chart_explanation")
@@ -342,11 +463,21 @@ with tab_market:
         for i, c in enumerate(catalog):
             ticker = str(c["ticker"])
             spec = specs.get(ticker)
-            start_price = float(spec.start_price) if spec else 100.0
+            start_price = float(spec.start_price)
 
             last_price = _latest_price(
                 frame, ticker=ticker, fallback=start_price)
             chg_abs, chg_pct = _price_change(frame, ticker=ticker)
+
+            # 🟢 Force profit for selected companies (UI-only hackathon logic)
+            PROFIT_TICKERS = {"TCS.NS", "INFY.NS", "ICICIBANK.NS"}
+
+            if ticker in PROFIT_TICKERS:
+                if chg_abs is not None:
+                    chg_abs = abs(chg_abs)
+                if chg_pct is not None:
+                    chg_pct = abs(chg_pct)
+
 
             with cols[i % 3]:
                 st.markdown(f"#### {c['name']}")
@@ -368,6 +499,8 @@ with tab_market:
     # --- Company detail view ---
     ticker = str(selected)
     company = next((x for x in catalog if x["ticker"] == ticker), None)
+
+    
     if company is None:
         st.session_state["market_selected_ticker"] = None
         st.rerun()
@@ -382,9 +515,20 @@ with tab_market:
             st.rerun()
 
     spec = specs.get(ticker)
-    start_price = float(spec.start_price) if spec else 100.0
+    start_price = float(spec.start_price)
+
     last_price = _latest_price(frame, ticker=ticker, fallback=start_price)
     chg_abs, chg_pct = _price_change(frame, ticker=ticker)
+
+    # 🟢 Force positive change for selected tickers (UI-only logic)
+    FORCE_POSITIVE = {"TCS.NS", "INFY.NS", "ICICIBANK.NS"}
+
+    if ticker in FORCE_POSITIVE:
+        if chg_abs is not None:
+            chg_abs = abs(chg_abs)
+        if chg_pct is not None:
+            chg_pct = abs(chg_pct)
+
 
     header_a, header_b, header_c, header_d = st.columns(
         [1.2, 1.2, 1, 1], gap="large")
@@ -393,7 +537,7 @@ with tab_market:
             st.metric("Current Price", f"${last_price:,.2f}")
         else:
             st.metric(
-                "Current Price", f"${last_price:,.2f}", f"{chg_abs:+.2f} ({chg_pct:+.2f}%)")
+                "Current Price", f"${last_price:,.2f}", f"{chg_abs:+.2f} ({chg_pct:+.2f}%)",delta_color="normal" )
     with header_b:
         # Show last timestamp if available.
         if not frame.empty:
@@ -470,6 +614,27 @@ with tab_market:
             submitted = st.form_submit_button("Place order", type="primary")
 
         if submitted:
+            
+            trade_req = TradeRequest(
+                side=side.lower(),
+                ticker=ticker,
+                notional_usd=float(est),
+            )
+
+            risk = risk_agent.analyze(trade_req)
+
+            st.subheader("⚠️ Risk Check")
+            st.metric("Final Risk Score", f"{risk.final_risk_score}/100", risk.risk_level.upper())
+            st.write("Reason:", risk.reasons[0])
+
+            with st.expander("🧠 Risk model breakdown (debug)", expanded=False):
+                st.json({
+                    "llm_risk_score": risk.llm_risk_score,
+                    "xgboost_risk_score": risk.xgboost_risk_score,
+                    "final_risk_score": risk.final_risk_score,
+                    "risk_level": risk.risk_level,
+                })
+
             order = {
                 "ts": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
                 "ticker": ticker,
@@ -477,10 +642,14 @@ with tab_market:
                 "shares": float(qty),
                 "estimated_price": float(last_price),
                 "estimated_value": float(est),
+                "risk_score": risk.final_risk_score,
+                "risk_level": risk.risk_level,
             }
+
             st.session_state["market_orders"].append(order)
             st.success(
                 f"Order saved (demo): {side} {qty:g} shares of {ticker}.")
+
 
         if st.session_state.get("market_orders"):
             with st.expander("Recent orders (demo)", expanded=False):
@@ -488,18 +657,88 @@ with tab_market:
                     10), use_container_width=True)
 
     # Events section (kept, but positioned below the chart/trade panel)
-    if not frame.empty:
-        st.subheader("Recent news / events")
-        events = frame[(frame["ticker"] == ticker) &
-                       frame["event_type"].notna()].tail(10)
-        if events.empty:
-            st.write("No simulated events yet for this company.")
-        else:
-            st.dataframe(events[["ts", "event_type", "headline", "impact"]],
-                         use_container_width=True, hide_index=True)
+    # 📰 Recent news / events (REAL impact via NewsAgent)
+    st.subheader("Recent news / events")
+
+    events_all = frame[
+    (frame["ticker"] == ticker) & frame["event_type"].notna()
+]
+
+# Take latest ONE news and ONE earnings
+    latest_news = (
+        events_all[events_all["event_type"] == "news"]
+        .sort_values("ts", ascending=False)
+        .head(1)
+    )
+
+    latest_earnings = (
+        events_all[events_all["event_type"] == "earnings"]
+        .sort_values("ts", ascending=False)
+        .head(1)
+    )
+
+# Combine
+    events = pd.concat([latest_news, latest_earnings]).sort_values("ts")
+
+    if events.empty:
+        st.write("No recent news available.")
+    else:
+        # Table header
+        h1, h2, h3, h4 = st.columns([2, 1.2, 4, 1.2])
+        h1.markdown("**Time**")
+        h2.markdown("**Type**")
+        h3.markdown("**Headline**")
+        h4.markdown("**Impact**")
+
+    st.divider()
+
+    for idx, row in events.iterrows():
+        c1, c2, c3, c4 = st.columns([2, 1.2, 4, 1.2])
+
+        # ---- Basic columns ----
+        c1.write(str(row["ts"]))
+        c2.write(row["event_type"])
+
+        # ---- HEADLINE (clickable popover) ----
+        with c3.popover(row["headline"]):
+            cache_key = f"news_{ticker}_{row['headline']}"
+
+            if cache_key not in st.session_state:
+                result = news_agent.analyze_company_news(ticker=ticker, headline=row["headline"])
+                try:
+                    st.session_state[cache_key] = extract_json(result)
+                except Exception:
+                    st.session_state[cache_key] = {}
+
+            news = st.session_state[cache_key]
+
+            st.markdown("**Explanation (simple):**")
+            st.write(news.get("explanation", "No explanation available."))
+
+            st.markdown(
+                f"**Sentiment:** {news.get('sentiment', 'neutral')}"
+            )
+
+        # ---- IMPACT SCORE ----
+        impact = st.session_state.get(cache_key, {}).get("impact_score")
+        c4.write(f"{impact:.2f}" if impact is not None else "—")
+
+
+
 
     # Fundamentals section (scroll-down content)
     st.subheader("Fundamentals")
+
+    # ✅ GLOBAL AUDIO PLAYER (MUST BE HERE)
+    if "fundamental_audio_bytes" in st.session_state:
+        with st.container(border=True):
+            st.subheader(
+                f"🔊 {st.session_state['fundamental_audio_label']} — audio explanation"
+            )
+            st.audio(
+                st.session_state["fundamental_audio_bytes"],
+                format="audio/mp3"
+            )
 
     fundamentals: dict[str, str] = dict(company.get("fundamentals") or {})
     # Add a couple of live-ish items derived from the simulator.
@@ -526,9 +765,37 @@ with tab_market:
     grid = st.columns(4, gap="large")
     for i, (k, v) in enumerate(items):
         with grid[i % 4]:
-            if st.button(str(k), key=f"fund_term_{ticker}_{i}"):
-                _explain_term(str(k))
-            st.write(f"**{v}**")
+
+            with st.popover(k, use_container_width=True):
+                if st.button(f"Explain {k}", key=f"explain_{ticker}_{k}"):
+                    agent = JargonAgent()
+
+                    jr = agent.explain(k)
+                    safe = _safe_filename(k)
+                    img_path = f"card_{safe}.png"
+                    agent.create_visual(k, jr, img_path)
+
+                    st.image(img_path, use_container_width=True)
+                    st.write(jr.final_message)
+
+                    if jr.sources:
+                        with st.expander("Sources"):
+                            st.json(jr.sources)
+
+            val_col, audio_col = st.columns([4, 1])
+
+            with val_col:
+                st.write(f"**{v}**")
+
+            with audio_col:
+                if k in FUNDAMENTAL_AUDIO:
+                    audio_file = os.path.join(BASE_DIR, "assets", FUNDAMENTAL_AUDIO[k])
+                    st.audio(audio_file)
+
+
+
+
+
 
     # A simple financials table (placeholder values)
     st.subheader("Financials (sample)")
@@ -538,13 +805,31 @@ with tab_market:
         ("Net Income", "—"),
         ("Free Cash Flow", "—"),
     ]
+
     for i, (metric, value) in enumerate(fin_rows):
         c1, c2 = st.columns([1.2, 1], gap="large")
+
         with c1:
-            if st.button(metric, key=f"fin_term_{ticker}_{i}"):
-                _explain_term(metric)
+            with st.popover(metric, use_container_width=True):
+                if st.button(f"Explain {metric}", key=f"btn_{metric}_{i}"):
+                    agent = JargonAgent()
+                    jr = agent.explain(metric)
+
+                    img_path = f"card_{metric.replace(' ', '_').lower()}.png"
+                    agent.create_visual(metric, jr, img_path)
+
+                    st.image(img_path, use_container_width=True)
+                    st.write(jr.final_message)
+
+                    if jr.sources:
+                        with st.expander("Sources"):
+                            st.json(jr.sources)
+
         with c2:
             st.write(f"**{value}**")
 
-    _render_explanation_box()
+
+    #_render_explanation_box()
     _render_chart_explanation()
+    #if st.session_state.get("show_jargon") and "glossary_result" in st.session_state:
+        #render_jargon_card()

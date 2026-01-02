@@ -37,7 +37,7 @@ FUNDAMENTAL_AUDIO = {
 if "show_jargon" not in st.session_state:
     st.session_state["show_jargon"] = False
 
-import re
+
 
 def extract_json(text: str) -> dict:
     match = re.search(r"\{[\s\S]*\}", text)
@@ -95,6 +95,28 @@ def _explain_term(term: str, *, with_audio: bool = True) -> None:
         "sources": jr.sources,
     }
 
+# ---------------- EVENT DATA (SAFE, NO UI) ----------------
+def get_latest_events(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    events_all = frame[
+        (frame["ticker"] == ticker) & frame["event_type"].notna()
+    ]
+
+    if events_all.empty:
+        return pd.DataFrame()
+
+    latest_news = (
+        events_all[events_all["event_type"] == "news"]
+        .sort_values("ts", ascending=False)
+        .head(1)
+    )
+
+    latest_earnings = (
+        events_all[events_all["event_type"] == "earnings"]
+        .sort_values("ts", ascending=False)
+        .head(1)
+    )
+
+    return pd.concat([latest_news, latest_earnings]).sort_values("ts")
 
 def render_jargon_card():
     if "glossary_result" not in st.session_state:
@@ -304,12 +326,12 @@ with tab_market:
             "sector": "IT Services",
             "description": "India’s largest IT services company.",
             "fundamentals": {
-                "Market Cap": "₹14.5T",
+                "Market Cap": "$14.5T",
                 "P/E": "28.0",
-                "EPS": "₹80",
+                "EPS": "$80",
                 "Dividend Yield": "1.2%",
-                "52W High": "₹4,260",
-                "52W Low": "₹3,200",
+                "52W High": "$4,260",
+                "52W Low": "$3,200",
                 "Beta": "0.9",
             },
         },
@@ -319,12 +341,12 @@ with tab_market:
             "sector": "IT Services",
             "description": "Global consulting and IT services firm.",
             "fundamentals": {
-                "Market Cap": "₹6.5T",
+                "Market Cap": "$6.5T",
                 "P/E": "25.0",
-                "EPS": "₹65",
+                "EPS": "$65",
                 "Dividend Yield": "1.8%",
-                "52W High": "₹1,980",
-                "52W Low": "₹1,350",
+                "52W High": "$1,980",
+                "52W Low": "$1,350",
                 "Beta": "0.8",
             },
         },
@@ -334,12 +356,12 @@ with tab_market:
             "sector": "Conglomerate",
             "description": "Energy, telecom, retail, and digital services.",
             "fundamentals": {
-                "Market Cap": "₹18.8T",
+                "Market Cap": "$18.8T",
                 "P/E": "24.0",
-                "EPS": "₹102",
+                "EPS": "$102",
                 "Dividend Yield": "0.3%",
-                "52W High": "₹3,050",
-                "52W Low": "₹2,200",
+                "52W High": "$3,050",
+                "52W Low": "$2,200",
                 "Beta": "1.1",
             },
         },
@@ -349,12 +371,12 @@ with tab_market:
             "sector": "Banking",
             "description": "India’s largest private sector bank.",
             "fundamentals": {
-                "Market Cap": "₹12.2T",
+                "Market Cap": "$12.2T",
                 "P/E": "19.0",
-                "EPS": "₹95",
+                "EPS": "$95",
                 "Dividend Yield": "1.0%",
-                "52W High": "₹1,760",
-                "52W Low": "₹1,360",
+                "52W High": "$1,760",
+                "52W Low": "$1,360",
                 "Beta": "0.9",
             },
         },
@@ -364,12 +386,12 @@ with tab_market:
             "sector": "Banking",
             "description": "Major Indian private sector bank.",
             "fundamentals": {
-                "Market Cap": "₹8.7T",
+                "Market Cap": "$8.7T",
                 "P/E": "18.0",
-                "EPS": "₹56",
+                "EPS": "$56",
                 "Dividend Yield": "0.8%",
-                "52W High": "₹1,260",
-                "52W Low": "₹900",
+                "52W High": "$1,260",
+                "52W Low": "$900",
                 "Beta": "1.0",
             },
         },
@@ -379,12 +401,12 @@ with tab_market:
             "sector": "FMCG",
             "description": "Consumer goods, hotels, and agribusiness.",
             "fundamentals": {
-                "Market Cap": "₹5.6T",
+                "Market Cap": "$5.6T",
                 "P/E": "27.0",
-                "EPS": "₹15",
+                "EPS": "$15",
                 "Dividend Yield": "3.5%",
-                "52W High": "₹525",
-                "52W Low": "₹400",
+                "52W High": "$525",
+                "52W Low": "$400",
                 "Beta": "0.6",
             },
         },
@@ -613,6 +635,25 @@ with tab_market:
             st.write(f"Estimated value: **${est:,.2f}**")
             submitted = st.form_submit_button("Place order", type="primary")
 
+        impact_score = 0.0
+
+        events = get_latest_events(frame, ticker)
+        try:
+            if not events.empty:
+                headline = events.iloc[-1]["headline"]
+
+                # Call NewsAgent (already instantiated at top)
+                news_json = news_agent.analyze_company_news(
+                    ticker=ticker,
+                    headline=headline
+                )
+
+                news_data = extract_json(news_json)
+                impact_score = float(news_data.get("impact_score", 0.0))
+        except Exception:
+            impact_score = 0.0
+
+
         if submitted:
             
             trade_req = TradeRequest(
@@ -623,8 +664,17 @@ with tab_market:
 
             risk = risk_agent.analyze(trade_req)
 
+            # ✅ ADD impact score directly to final risk
+            final_risk = min(
+                100,
+                risk.final_risk_score + int(impact_score * 10)
+)
+
+
             st.subheader("⚠️ Risk Check")
-            st.metric("Final Risk Score", f"{risk.final_risk_score}/100", risk.risk_level.upper())
+            st.metric("Final Risk Score", f"{final_risk}/100", risk.risk_level.upper())
+            if impact_score > 0:
+                st.write(f"⚡ News impact added: +{int(impact_score * 10)}")
             st.write("Reason:", risk.reasons[0])
 
             with st.expander("🧠 Risk model breakdown (debug)", expanded=False):
@@ -642,7 +692,7 @@ with tab_market:
                 "shares": float(qty),
                 "estimated_price": float(last_price),
                 "estimated_value": float(est),
-                "risk_score": risk.final_risk_score,
+                "risk_score": final_risk,
                 "risk_level": risk.risk_level,
             }
 

@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import os
 import time
-import textwrap
 from typing import Any, Dict, List, Optional
-from io import BytesIO
-
-import matplotlib.pyplot as plt
-import numpy as np
 from dotenv import load_dotenv
-from gtts import gTTS
 from pydantic import BaseModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
+
+try:
+    from gtts import gTTS  # type: ignore
+except Exception:  # pragma: no cover
+    gTTS = None
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
+    from langchain_core.prompts import PromptTemplate  # type: ignore
+except Exception:  # pragma: no cover
+    ChatGoogleGenerativeAI = None
+    PromptTemplate = None
 
 load_dotenv()
 
@@ -38,47 +42,55 @@ class JargonAgent:
         temperature: float = 0.2,
         api_key_env: str = "MY_TOKEN",
     ):
-        self.llm = ChatGoogleGenerativeAI(
-            model=model,
-            temperature=temperature,
-            google_api_key=os.getenv(api_key_env),
+        api_key = os.getenv(api_key_env)
+
+        self.llm = None
+        if ChatGoogleGenerativeAI is not None and api_key:
+            self.llm = ChatGoogleGenerativeAI(
+                model=model,
+                temperature=temperature,
+                google_api_key=api_key,
+            )
+
+        self._simple_template = (
+            "Explain this trading term in very simple language.\n\n"
+            "Rules:\n"
+            "- No jargon\n"
+            "- Grade 5 reading level\n"
+            "- 6-10 short sentences\n\n"
+            'Term: "{term}"\n\n'
+            "Return ONLY the explanation.\n"
         )
 
-        self.simple_prompt = PromptTemplate(
-            input_variables=["term"],
-            template="""
-Explain this trading term in very simple language.
-
-Rules:
-- No jargon
-- Grade 5 reading level
-- 6-10 short sentences
-
-
-Term: "{term}"
-
-Return ONLY the explanation.
-""",
+        self._narration_template = (
+            "Explain this trading term like a calm teacher.\n\n"
+            "Rules:\n"
+            "- Friendly tone\n"
+            "- Simple real-life example\n"
+            "- Explain why it matters\n"
+            "- 6–10 sentences\n"
+            "- No jargon\n"
+            "- Grade 5 reading level\n\n"
+            'Term: "{term}"\n\n'
+            "Return ONLY narration text.\n"
         )
 
-        self.narration_prompt = PromptTemplate(
-            input_variables=["term"],
-            template="""
-Explain this trading term like a calm teacher.
+        if PromptTemplate is not None:
+            self.simple_prompt = PromptTemplate(
+                input_variables=["term"],
+                template=self._simple_template,
+            )
+            self.narration_prompt = PromptTemplate(
+                input_variables=["term"],
+                template=self._narration_template,
+            )
+        else:
+            self.simple_prompt = None
+            self.narration_prompt = None
 
-Rules:
-- Friendly tone
-- Simple real-life example
-- Explain why it matters
-- 6–10 sentences
-- No jargon
-- Grade 5 reading level
-
-Term: "{term}"
-
-Return ONLY narration text.
-""",
-        )
+    def _format_prompt(self, kind: str, *, term: str) -> str:
+        template = self._simple_template if kind == "simple" else self._narration_template
+        return template.format(term=term)
 
     # --------------------------------------------------
     # SAFE LLM CALL
@@ -86,9 +98,10 @@ Return ONLY narration text.
     def _safe_invoke(self, prompt: str, retries: int = 1) -> str:
         for i in range(retries):
             try:
-                res = self.llm.invoke(prompt)
-                if res and res.content:
-                    return res.content.strip()
+                if self.llm is not None:
+                    res = self.llm.invoke(prompt)
+                    if res and getattr(res, "content", None):
+                        return str(res.content).strip()
             except Exception:
                 time.sleep(2 * (i + 1))
 
@@ -103,7 +116,10 @@ Return ONLY narration text.
         reading_level: str = "simple",
         **kwargs,
     ) -> JargonResult:
-        prompt = self.simple_prompt.format(term=term)
+        if self.simple_prompt is not None:
+            prompt = self.simple_prompt.format(term=term)
+        else:
+            prompt = self._format_prompt("simple", term=term)
         text = self._safe_invoke(prompt)
 
         return JargonResult(
@@ -120,18 +136,24 @@ Return ONLY narration text.
         reading_level: str = "simple",
         **kwargs,
     ) -> str:
-        prompt = self.narration_prompt.format(term=term)
+        if self.narration_prompt is not None:
+            prompt = self.narration_prompt.format(term=term)
+        else:
+            prompt = self._format_prompt("narration", term=term)
         return self._safe_invoke(prompt)
 
     # --------------------------------------------------
     # TEXT → SPEECH (BYTES, STREAMLIT-SAFE)
     # --------------------------------------------------
     def text_to_speech(
-    self,
-    text: str,
-    out_path: str = "narration.mp3",
-) -> str:
+        self,
+        text: str,
+        out_path: str = "narration.mp3",
+    ) -> str:
         try:
+            if gTTS is None:
+                raise RuntimeError("gTTS is not installed")
+
             tts = gTTS(text=text, lang="en", slow=True)
             tts.save(out_path)
             return out_path
@@ -140,57 +162,6 @@ Return ONLY narration text.
             with open(out_path, "wb") as f:
                 f.write(b"")
             return out_path
-
-
-    # --------------------------------------------------
-    # VISUAL CARD (MATPLOTLIB)
-    # --------------------------------------------------
-    def create_visual(
-        self,
-        term: str,
-        explanation: Any,
-        out_path: str = "jargon_card.png",
-    ) -> str:
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.axis("off")
-
-        ax.text(
-            0.5,
-            0.85,
-            term,
-            fontsize=22,
-            ha="center",
-            weight="bold",
-        )
-
-        if hasattr(explanation, "final_message"):
-            text = explanation.final_message
-        else:
-            text = str(explanation)
-
-        wrapped = "\n".join(textwrap.wrap(text, width=42))
-        ax.text(
-            0.5,
-            0.5,
-            wrapped,
-            fontsize=14,
-            ha="center",
-            va="center",
-        )
-
-        y = np.random.normal(0, 0.4, 30).cumsum()
-        y_norm = (y - y.min()) / (y.max() - y.min())
-        ax.plot(
-            np.linspace(0.1, 0.9, 30),
-            y_norm * 0.2 + 0.15,
-            linewidth=2,
-        )
-
-        plt.tight_layout()
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-
-        return out_path
 
     # --------------------------------------------------
     # UI-ONLY HELPER (NOT USED BY ROUTER)

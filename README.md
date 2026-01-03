@@ -62,7 +62,7 @@ streamlit run src/omago_ai/ui/app.py
 
   - Point at: plain-language explanation + **Sources** expander
 
-- Ask: `buy $200 of TSLA`
+- Ask: `buy ₹200 of TSLA`
   - Point at: “Trade check (simple)” step list + confirmation questions
   - Open: **Market context used (debug)** to show live simulator context (vol estimate, event count, last headline)
 
@@ -75,7 +75,7 @@ Tip: If you don’t see market context, generate ticks first in the Market tab.
 2. **Assistant**:
 
 - Ask: `What does RSI mean?` (shows jargon → simple explanation + sources)
-- Ask: `buy $200 of TSLA` (shows risk-aware, step-by-step checklist)
+- Ask: `buy ₹200 of TSLA` (shows risk-aware, step-by-step checklist)
 - Open: **Market context used (debug)** (proves the risk is reacting to live simulated volatility/events)
 
 ## Run tests
@@ -92,18 +92,18 @@ Copy `.env.example` to `.env` and fill values if/when you add an LLM provider.
 
 The app works fully offline by default. If you want LLM-enhanced wording:
 
-1) Install the optional dependency:
+1. Install the optional dependency:
 
 ```powershell
 pip install -e .[llm]
 ```
 
-2) Set env vars in `.env`:
+2. Set env vars in `.env`:
 
 - `OPENAI_API_KEY`
 - (optional) `OPENAI_MODEL` and `OPENAI_BASE_URL`
 
-3) In the UI, use the separate button: **Send (LLM)**.
+3. In the UI, use the separate button: **Send (LLM)**.
 
 ## Notes
 

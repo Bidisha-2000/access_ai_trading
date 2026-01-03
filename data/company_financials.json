@@ -1,0 +1,62 @@
+{
+  "TCS.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b9255,324 Cr",
+      "Gross Profit": "\u20b9109,641 Cr",
+      "Net Income": "\u20b948,553 Cr",
+      "Free Cash Flow": "\u20b944,971 Cr"
+    }
+  },
+  "INFY.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b91,928 Cr",
+      "Gross Profit": "\u20b9587 Cr",
+      "Net Income": "\u20b9316 Cr",
+      "Free Cash Flow": "\u20b9409 Cr"
+    }
+  },
+  "RELIANCE.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b9964,693 Cr",
+      "Gross Profit": "\u20b9242,006 Cr",
+      "Net Income": "\u20b969,648 Cr",
+      "Free Cash Flow": "\u20b938,736 Cr"
+    }
+  },
+  "HDFCBANK.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b9237,151 Cr",
+      "Gross Profit": "\u2014",
+      "Net Income": "\u20b967,351 Cr",
+      "Free Cash Flow": "\u20b9112,922 Cr"
+    }
+  },
+  "ICICIBANK.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b9204,715 Cr",
+      "Gross Profit": "\u2014",
+      "Net Income": "\u20b951,029 Cr",
+      "Free Cash Flow": "\u20b9118,035 Cr"
+    }
+  },
+  "ITC.NS": {
+    "as_of": "2026-01-03",
+    "currency": "INR",
+    "rows": {
+      "Revenue": "\u20b974,653 Cr",
+      "Gross Profit": "\u20b942,277 Cr",
+      "Net Income": "\u20b934,747 Cr",
+      "Free Cash Flow": "\u20b915,348 Cr"
+    }
+  }
+}

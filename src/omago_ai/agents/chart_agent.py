@@ -71,10 +71,16 @@ class ChartAgent:
         low = float(np.min(px))
         high = float(np.max(px))
 
+        def _r(amount: float) -> str:
+            # Rounded rupees for accessibility.
+            return f"₹{amount:,.0f}"
+
         # Basic movement.
         pct_change = None
         if start_price > 0:
             pct_change = (end_price - start_price) / start_price * 100.0
+
+        abs_change = end_price - start_price
 
         swing_pct = None
         if start_price > 0:
@@ -121,47 +127,65 @@ class ChartAgent:
                 last_event = None
 
         parts: list[str] = []
-        if reading_level == "simple":
-            parts.append("Here’s what this chart is showing (simple):")
-        else:
-            parts.append("Chart summary:")
+
+        # A cognitively-accessible explanation: short, structured, minimal numbers.
+        parts.append("What you are looking at:")
+        parts.append("- Left to right is time.")
+        parts.append("- Up and down is the price.")
+        parts.append(
+            "- If the line goes up, the price is going up. If it goes down, the price is going down.")
 
         if start_ts and end_ts:
-            parts.append(f"- Time window: {start_ts} to {end_ts}.")
-        parts.append(f"- Start price: ${start_price:,.2f}.")
-        parts.append(f"- End price: ${end_price:,.2f}.")
+            parts.append("")
+            parts.append(f"Time shown: {start_ts} to {end_ts}.")
 
-        if pct_change is not None:
-            parts.append(f"- Change: {pct_change:+.2f}%.")
-
-        parts.append(f"- Range: low ${low:,.2f}, high ${high:,.2f}.")
-        if swing_pct is not None:
-            parts.append(f"- Biggest swing vs start: ~{swing_pct:.2f}%.")
-
+        parts.append("")
         if trend == "up":
-            parts.append("- Overall trend: moving up.")
+            parts.append(
+                "Simple result: The price ended higher than it started.")
         elif trend == "down":
-            parts.append("- Overall trend: moving down.")
+            parts.append(
+                "Simple result: The price ended lower than it started.")
         else:
-            parts.append("- Overall trend: roughly flat.")
+            parts.append(
+                "Simple result: The price ended close to where it started.")
+
+        parts.append(f"Start (left side): about {_r(start_price)}.")
+        parts.append(f"End (right side): about {_r(end_price)}.")
+
+        # Keep the change as one easy number.
+        if abs_change != 0 and np.isfinite(abs_change):
+            direction = "up" if abs_change > 0 else "down"
+            parts.append(
+                f"That is {direction} by about {_r(abs(abs_change))}.")
+
+        parts.append("")
+        parts.append("Highs and lows in this time:")
+        parts.append(f"- Highest point: about {_r(high)}.")
+        parts.append(f"- Lowest point: about {_r(low)}.")
 
         if vol is not None:
-            # Vol is unitless per-tick log-return std.
+            parts.append("")
+            parts.append("How bumpy the line looks:")
             if vol >= 0.02:
-                parts.append(
-                    "- The line is jumpy (bigger tick-to-tick moves).")
+                parts.append("- Very bumpy: lots of quick up/down moves.")
             elif vol >= 0.01:
-                parts.append("- The line has some movement (medium wiggles).")
+                parts.append("- Some bumps: a few quick moves.")
             else:
-                parts.append("- The line is relatively smooth (small moves).")
+                parts.append("- Mostly smooth: small moves.")
 
         if event_count > 0:
-            parts.append(f"- Simulated events in this window: {event_count}.")
+            parts.append("")
+            parts.append("Possible reason for a sudden move:")
+            parts.append(
+                f"- There were {event_count} simulated event(s) in this time.")
             if last_event and last_event.get("headline"):
-                parts.append(f"- Latest event: {last_event.get('headline')}")
+                parts.append(
+                    f"- Latest event headline: {last_event.get('headline')}")
 
+        parts.append("")
         parts.append(
-            "Note: this is simulated demo data, not real market data.")
+            "Reminder: this is simulated demo data, not real market data.")
 
         summary = {
             "ticker": ticker,

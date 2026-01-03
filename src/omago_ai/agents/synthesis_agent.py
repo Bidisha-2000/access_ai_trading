@@ -31,7 +31,7 @@ class SynthesisAgent:
     ) -> SynthesisResult:
         amount_part = ""
         if trade.notional_usd is not None:
-            amount_part = f"${trade.notional_usd:.0f} "
+            amount_part = f"₹{trade.notional_usd:.0f} "
         elif trade.shares is not None:
             amount_part = f"{trade.shares:g} shares "
 
@@ -61,7 +61,7 @@ class SynthesisAgent:
         questions: list[str] = []
         questions.append("Is the ticker correct?")
         if trade.notional_usd is not None:
-            questions.append("Is the dollar amount correct?")
+            questions.append("Is the rupee amount correct?")
         if trade.shares is not None:
             questions.append("Is the share quantity correct?")
         questions.append("Do you understand you could lose money?")
@@ -82,8 +82,10 @@ class SynthesisAgent:
                 llm_steps = obj.get("steps")
                 llm_qs = obj.get("confirmation_questions")
                 if isinstance(llm_steps, list) and isinstance(llm_qs, list):
-                    steps = [str(s).strip() for s in llm_steps if str(s).strip()][:12]
-                    questions = [str(q).strip() for q in llm_qs if str(q).strip()][:12]
+                    steps = [str(s).strip()
+                             for s in llm_steps if str(s).strip()][:12]
+                    questions = [str(q).strip()
+                                 for q in llm_qs if str(q).strip()][:12]
             except Exception:
                 # Fall back to deterministic output on any LLM or parsing failure.
                 pass

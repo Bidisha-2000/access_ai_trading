@@ -10,7 +10,11 @@ from omago_ai.rag.retriever import retrieve_news_docs
 load_dotenv()
 
 # 🔑 API keys
-GEMINI_API_KEY = os.getenv("MY_TOKEN")
+GEMINI_API_KEY = (
+    os.getenv("GOOGLE_API_KEY")
+    or os.getenv("GEMINI_API_KEY")
+    or os.getenv("MY_TOKEN")  # legacy fallback
+)
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 # ---------------- TICKER MAP ----------------
@@ -26,6 +30,7 @@ TICKER_TO_COMPANY = {
 
 # ---------------- LIVE NEWS FETCHER ----------------
 
+
 def fetch_live_news(company_name: str, ticker: str, limit: int = 3):
     if not NEWS_API_KEY:
         return []
@@ -40,7 +45,7 @@ def fetch_live_news(company_name: str, ticker: str, limit: int = 3):
 
     try:
         resp = requests.get(url, params=params, timeout=5).json()
-        #print("Live news raw response:", resp)
+        # print("Live news raw response:", resp)
     except Exception:
         return []
 
@@ -85,11 +90,15 @@ def fetch_live_news(company_name: str, ticker: str, limit: int = 3):
     return docs
 
 
-
 # ---------------- NEWS AGENT ----------------
 
 class NewsAgent:
     def __init__(self):
+        if not GEMINI_API_KEY:
+            raise RuntimeError(
+                "Gemini API key is not set. Set GOOGLE_API_KEY (recommended) or GEMINI_API_KEY. "
+                "For legacy configs, MY_TOKEN is also supported."
+            )
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash-lite",
             temperature=0.3,

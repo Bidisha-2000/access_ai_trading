@@ -13,6 +13,10 @@ Requires-Dist: pandas>=2.2
 Requires-Dist: plotly>=5.24
 Requires-Dist: python-dotenv>=1.0
 Requires-Dist: scikit-learn>=1.4
+Requires-Dist: langchain_community>=0.0.208
+Requires-Dist: faiss-cpu>=1.8
+Requires-Dist: langchain>=0.0.305
+Requires-Dist: yfinance>=0.2.40
 Provides-Extra: dev
 Requires-Dist: pytest>=8.3; extra == "dev"
 Requires-Dist: ruff>=0.6; extra == "dev"

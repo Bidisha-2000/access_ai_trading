@@ -42,7 +42,7 @@ class LeadRouter:
             if trade is None:
                 message = (
                     "I got this as a trade request, but I’m missing details.\n\n"
-                    "Try: ‘buy $200 of TSLA’ or ‘sell 2 shares of AAPL’."
+                    "Try: ‘buy ₹200 of TSLA’ or ‘sell 2 shares of AAPL’."
                 )
                 risk = None
                 synthesis = None
@@ -92,13 +92,14 @@ class LeadRouter:
         else:
             intent = "general"
             message = (
-                "Tell me what you want to do (example: 'buy $100 of AAPL' or 'explain RSI').\n\n"
+                "Tell me what you want to do (example: 'buy ₹100 of AAPL' or 'explain RSI').\n\n"
                 "I’ll respond in simple language and list clear next actions."
             )
             if use_llm and llm_client is not None:
                 try:
                     system, user = general_prompt(
-                        user_input, reading_level=getattr(session, "reading_level", "simple")
+                        user_input, reading_level=getattr(
+                            session, "reading_level", "simple")
                     )
                     llm_text = llm_client.complete(system=system, user=user)
                     if llm_text:
@@ -114,7 +115,8 @@ class LeadRouter:
             final_message=message,
             risk=(risk if intent == "trade" else None),
             synthesis=(synthesis if intent == "trade" else None),
-            market_used=(market.model_dump() if (intent == "trade" and market is not None) else None),
+            market_used=(market.model_dump() if (
+                intent == "trade" and market is not None) else None),
             sources=(sources if intent == "explain" else None),
             jargon=(jargon if intent == "explain" else None),
         )

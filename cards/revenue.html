@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Revenue Flashcard</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            margin: 0;
+            font-family: 'Verdana', 'Arial', sans-serif;
+        }
+
+        .flashcard {
+            background-color: #ffffff;
+            width: 400px;
+            min-height: 600px;
+            border: 5px solid #2c3e50;
+            border-radius: 25px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 30px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+
+        .header {
+            margin-bottom: 10px;
+        }
+
+        .word {
+            font-size: 42px;
+            font-weight: bold;
+            color: #1a252f;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin: 0;
+        }
+
+        .visual-container {
+            background: #fdfdfd;
+            border: 2px dashed #bdc3c7;
+            border-radius: 15px;
+            width: 100%;
+            padding: 15px 0;
+            margin: 15px 0;
+        }
+
+        .icon-label {
+            font-size: 16px;
+            color: #7f8c8d;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .main-definition {
+            background-color: #e8f5e9;
+            padding: 20px;
+            border-radius: 15px;
+            width: 100%;
+            border-left: 8px solid #27ae60;
+            box-sizing: border-box;
+        }
+
+        .big-text {
+            font-size: 28px;
+            color: #1b5e20;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .sub-text {
+            font-size: 20px;
+            color: #2e7d32;
+        }
+
+        .example-box {
+            background-color: #fff9c4;
+            padding: 15px;
+            border-radius: 15px;
+            width: 100%;
+            margin-top: 15px;
+            border: 2px solid #fbc02d;
+            box-sizing: border-box;
+        }
+
+        .example-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #f57f17;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .example-body {
+            font-size: 17px;
+            color: #333;
+            line-height: 1.4;
+        }
+
+        .summary-pill {
+            margin-top: 15px;
+            background-color: #34495e;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        svg {
+            width: 80px;
+            height: 80px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="flashcard">
+        <div class="header">
+            <h1 class="word">REVENUE</h1>
+        </div>
+
+        <div class="visual-container">
+            <!-- Lemonade Stand Icon -->
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 21H21" stroke="#fbc02d" stroke-width="2" stroke-linecap="round"/>
+                <path d="M5 21V11H19V21" stroke="#2c3e50" stroke-width="2"/>
+                <path d="M4 11L12 7L20 11" stroke="#2c3e50" stroke-width="2"/>
+                <circle cx="12" cy="14" r="3" fill="#ffeb3b"/>
+                <path d="M12 11V17" stroke="#f57f17" stroke-width="1.5"/>
+            </svg>
+            <div class="icon-label">Lemonade Stand</div>
+        </div>
+        
+        <div class="main-definition">
+            <span class="big-text">MONEY COMING IN</span>
+            <span class="sub-text">Total money from selling stuff.</span>
+        </div>
+
+        <div class="example-box">
+            <span class="example-title">Think about a Lemonade Stand:</span>
+            <div class="example-body">
+                Every cup you sell brings in cash. 
+                Before you pay for lemons or sugar, 
+                all that cash is your <strong>Revenue</strong>.
+            </div>
+        </div>
+
+        <div class="summary-pill">
+            It is your TOTAL SCORE! 🏆
+        </div>
+    </div>
+
+</body>
+</html>

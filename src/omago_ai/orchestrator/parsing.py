@@ -14,7 +14,12 @@ class TradeRequest:
 
 _TICKER_RE = re.compile(r"\b([A-Z]{2,5})\b")
 _MONEY_RE = re.compile(
-    r"\$\s*(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*(?:usd|dollars?)\b", re.IGNORECASE)
+    r"(?:₹\s*(\d+(?:\.\d+)?))"
+    r"|(?:\b(\d+(?:\.\d+)?)\s*(?:inr|rupees?|rs)\b)"
+    r"|(?:\$\s*(\d+(?:\.\d+)?))"
+    r"|(?:\b(\d+(?:\.\d+)?)\s*(?:usd|dollars?)\b)",
+    re.IGNORECASE,
+)
 _SHARES_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:shares?|sh)\b", re.IGNORECASE)
 
 
@@ -37,7 +42,7 @@ def parse_trade_request(text: str) -> TradeRequest | None:
     for m in _TICKER_RE.finditer(raw):
         candidate = m.group(1)
         # Filter out common non-tickers in user text.
-        if candidate in {"USD"}:
+        if candidate in {"USD", "INR", "RS"}:
             continue
         ticker = candidate
         break
@@ -56,7 +61,8 @@ def parse_trade_request(text: str) -> TradeRequest | None:
     notional = None
     m_money = _MONEY_RE.search(raw)
     if m_money:
-        amount = m_money.group(1) or m_money.group(2)
+        amount = m_money.group(1) or m_money.group(
+            2) or m_money.group(3) or m_money.group(4)
         try:
             notional = float(amount)
         except ValueError:

@@ -7,9 +7,11 @@ src/omago_ai.egg-info/dependency_links.txt
 src/omago_ai.egg-info/requires.txt
 src/omago_ai.egg-info/top_level.txt
 src/omago_ai/agents/__init__.py
+src/omago_ai/agents/access_ai_classical.py
 src/omago_ai/agents/chart_agent.py
 src/omago_ai/agents/jargon_agent.py
 src/omago_ai/agents/lead_agent.py
+src/omago_ai/agents/news_agent.py
 src/omago_ai/agents/risk_agent.py
 src/omago_ai/agents/synthesis_agent.py
 src/omago_ai/llm/__init__.py
@@ -17,6 +19,7 @@ src/omago_ai/llm/client.py
 src/omago_ai/llm/prompts.py
 src/omago_ai/llm/utils.py
 src/omago_ai/market/__init__.py
+src/omago_ai/market/company_financials.py
 src/omago_ai/market/features.py
 src/omago_ai/market/models.py
 src/omago_ai/market/simulator.py
@@ -28,6 +31,7 @@ src/omago_ai/orchestrator/router.py
 src/omago_ai/orchestrator/state.py
 src/omago_ai/rag/__init__.py
 src/omago_ai/rag/chunking.py
+src/omago_ai/rag/docs.py
 src/omago_ai/rag/index.py
 src/omago_ai/rag/loader.py
 src/omago_ai/rag/retriever.py
@@ -38,6 +42,7 @@ tests/test_chart_agent.py
 tests/test_jargon_agent.py
 tests/test_llm_mode.py
 tests/test_market_simulator.py
+tests/test_news.py
 tests/test_rag_retriever.py
 tests/test_risk_market_context.py
 tests/test_smoke.py
